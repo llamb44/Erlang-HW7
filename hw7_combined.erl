@@ -1,24 +1,45 @@
-%%Lindsay Lamy
-%%HW7
-%%c("C:\\Users\\Sweet\\OneDrive\\Documents\\College Stuff\\Actual Class Things\\fall2022\\Erlang\\hw7_combined.erl").
-
 -module(hw7_combined).
-
 -export([start/0, signup/2,  post/3, stop/0]).
 
 %LL: the client code
-start() -> register(messageboard, spawn(fun() -> auth([]) end)).
-
 signup(Name, Password) -> messageboard! {signup, Name, Password}.
 
 post(Name, Password, Text) -> messageboard ! {post, Name, Password, Text}.
 
 stop() -> stop_cmd ! messageboard.
-	
-	
-	
-%LL: the posting server's code, it still needs to be spawned
-posting(AuthPid)->
+
+auth(Idlist, PostServer) -> 
+    receive
+        {Pid, signup, Name, Password} ->
+            if 
+                keysearch(Name, 1, Idlist) -> 
+                    Pid ! {Pid, duplicate};
+            true ->
+                Cookie = erlang:md5(Name++Password),
+                UpdatedIdlist = [[Name, Cookie]|Idlist], 
+                Pid ! {Pid, ok},
+                auth(UpdatedIdlist, PostServer)
+            end;
+
+        {Pid, post, Name, Password, Text} ->
+            Cookie = erlang:md5(Name++Password),
+            if
+                keysearch(Cookie, 2, Idlist) -> 
+                    PostServer ! {Pid, post, Text}, %post server needs to be created
+                    Pid ! {Pid, ok};
+            true ->
+                Pid ! {Pid, error}
+            end,
+        auth(Idlist, PostServer)
+    end.
+
+posting()->
 	receive
-		{Pid, post, Text} when Pid =:= AuthPid -> io:format("~p~n", Text), posting(AuthPid)
+		{Pid, post, Text} when Pid =:= messageboard -> io:format("~p~n", Text), posting()
 	end.
+        
+start() ->
+    PostServer = spawn(fun() -> posting() end),
+    Pid = spawn(fun() -> auth([], PostServer) end),
+    register(messageboard, Pid).
+
